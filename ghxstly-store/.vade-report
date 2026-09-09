@@ -1,0 +1,65 @@
+# Vercel Web Analytics Installation Report
+
+## Implementation Summary
+
+Successfully installed and configured Vercel Web Analytics for the ghxstly-store Express.js application.
+
+## Changes Made
+
+### 1. Package Installation
+- **File Modified**: `package.json`
+- **Change**: Added `@vercel/analytics` version `^2.0.1` to dependencies
+- **Reason**: Required package for Vercel Analytics tracking
+
+### 2. Dependencies Updated
+- **File Modified**: `package-lock.json`
+- **Change**: Updated lockfile with @vercel/analytics and its dependencies (71 packages added)
+- **Reason**: Ensures consistent dependency resolution across environments
+
+### 3. Analytics Script Integration
+- **File Modified**: `public/index.html`
+- **Change**: Added `<script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>` in the `<head>` section
+- **Location**: Line 10, placed after stylesheet link
+- **Reason**: Integrates Vercel Analytics tracking using the CDN approach recommended for HTML/vanilla JavaScript applications
+
+## Implementation Approach
+
+After fetching the latest documentation from https://vercel.com/docs/analytics/quickstart, I determined that:
+
+1. This is an Express.js application serving static HTML files
+2. The best approach for this architecture is to use the CDN script tag method
+3. The script tag was added with the `defer` attribute for optimal loading performance
+4. The script is placed in the `<head>` section following Vercel's best practices
+
+## Framework-Specific Notes
+
+Since this is an Express.js backend serving static HTML (not a frontend framework like Next.js or React), I used the HTML5/vanilla JavaScript approach:
+- Added the analytics script via CDN (`https://cdn.vercel-insights.com/v1/script.js`)
+- Used the `defer` attribute to ensure non-blocking script loading
+- No additional JavaScript configuration needed - the script automatically tracks page views
+
+## Verification Steps Completed
+
+✓ Package installed successfully using npm
+✓ package.json updated with @vercel/analytics dependency
+✓ package-lock.json updated with all dependencies
+✓ Analytics script tag added to HTML head section
+✓ Server.js syntax validated successfully
+✓ No linting errors (no linter configured in project)
+✓ No test failures (no test suite configured in project)
+
+## Next Steps for Activation
+
+To enable analytics tracking:
+
+1. Deploy this application to Vercel using `vercel deploy`
+2. Navigate to the Analytics section in your Vercel dashboard
+3. Click "Enable" to activate Web Analytics
+4. Once deployed, verify tracking by checking browser Network tab for requests from `/<unique-path>/view`
+
+## Additional Information
+
+- The implementation preserves all existing code structure
+- No changes to application logic or functionality
+- The analytics script loads asynchronously and does not block page rendering
+- Tracking will only be active when deployed on Vercel's platform
