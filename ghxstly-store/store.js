@@ -1,0 +1,291 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const DATA_DIR = path.join(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
+
+const DEFAULT_DB = {
+  accounts: [],
+  walletCodes: [],
+  promoCodes: [],
+  transactions: [],
+  sessions: []
+};
+
+let db = load();
+
+function load() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2));
+    return { ...DEFAULT_DB };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    return { ...DEFAULT_DB, ...parsed };
+  } catch (err) {
+    console.error('Corrupt database file, starting fresh:', err.message);
+    fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2));
+    return { ...DEFAULT_DB };
+  }
+}
+
+let saveTimer = null;
+let dirty = false;
+let lastOwnWriteMs = 0;
+function save() {
+  dirty = true;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      skipNextWatch = true;
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+      try { lastOwnWriteMs = fs.statSync(DB_FILE).mtimeMs; } catch (_) {}
+      dirty = false;
+    } catch (err) {
+      console.error('Failed to save database:', err.message);
+    }
+  }, 25);
+}
+
+let skipNextWatch = false;
+function pushWatch(eventType, filename) {
+  if (filename && filename !== 'db.json') return;
+  if (dirty) return;
+  try {
+    let mtime = 0;
+    try { mtime = fs.statSync(DB_FILE).mtimeMs; } catch (e) { return; }
+    if (mtime <= lastOwnWriteMs) return; // our own write, not an external change
+    const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    db = { ...DEFAULT_DB, ...parsed };
+  } catch (_) { /* ignore transient read errors */ }
+}
+try { fs.watch(DATA_DIR, { persistent: false }, pushWatch); } catch (_) {}
+
+function randomToken(bytes = 24) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateCode(length = 8) {
+  const bytes = crypto.randomBytes(length);
+  let out = '';
+  for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length];
+  return out;
+}
+
+function generateOrderCode() {
+  const time = Date.now().toString(36).toUpperCase();
+  return `GHX-${time}-${generateCode(8)}-${generateCode(4)}`;
+}
+
+/* ---------- Sessions ---------- */
+
+function getOrCreateSession(sessionToken) {
+  let session = db.sessions.find(s => s.token === sessionToken);
+  if (!session) {
+    session = { token: sessionToken, balance: 0, createdAt: Date.now() };
+    db.sessions.push(session);
+    save();
+  }
+  return session;
+}
+
+function getSession(sessionToken) {
+  return db.sessions.find(s => s.token === sessionToken) || null;
+}
+
+function setBalance(sessionToken, balance) {
+  const session = getSession(sessionToken);
+  session.balance = Math.max(0, Math.round(balance * 100) / 100);
+  save();
+  return session.balance;
+}
+
+/* ---------- Accounts ---------- */
+
+function listAccounts(includeSold = false) {
+  return db.accounts
+    .filter(a => includeSold || a.status !== 'sold')
+    .sort((a, b) => a.id - b.id)
+    .map(a => ({ ...a }));
+}
+
+function getAccount(id) {
+  return db.accounts.find(a => a.id === id) || null;
+}
+
+function addAccount(account) {
+  if (account.id == null) {
+    account.id = db.accounts.reduce((max, a) => Math.max(max, a.id), 0) + 1;
+  }
+  account.status = account.status || 'available';
+  account.stock = account.stock == null ? 50 : account.stock;
+  db.accounts.push(account);
+  save();
+  return account;
+}
+
+function markAccountSold(id) {
+  const account = getAccount(id);
+  if (!account) return false;
+  account.status = 'sold';
+  save();
+  return true;
+}
+
+function decrementStock(id) {
+  const account = getAccount(id);
+  if (!account) return { ok: false, error: 'Account not found' };
+  if (account.status === 'sold' || account.stock <= 0) {
+    return { ok: false, error: 'This account is out of stock.' };
+  }
+  account.stock = Math.max(0, account.stock - 1);
+  if (account.stock === 0) account.status = 'sold';
+  save();
+  return { ok: true, stock: account.stock, sold: account.status === 'sold' };
+}
+
+function restoreAccount(id) {
+  const account = getAccount(id);
+  if (!account) return false;
+  account.status = 'available';
+  save();
+  return true;
+}
+
+/* ---------- Wallet codes ---------- */
+
+function createWalletCodes(amount, count) {
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    const code = `GHX-${amount}-${generateCode(10)}`;
+    db.walletCodes.push({ code, amount, used: false, usedBy: null, usedAt: null });
+    codes.push(code);
+  }
+  save();
+  return codes;
+}
+
+function redeemWalletCode(code, sessionToken) {
+  const entry = db.walletCodes.find(c => c.code === code);
+  if (!entry) return { ok: false, reason: 'invalid' };
+  if (entry.used) return { ok: false, reason: 'used' };
+  entry.used = true;
+  entry.usedBy = sessionToken;
+  entry.usedAt = new Date().toISOString();
+  const session = getSession(sessionToken);
+  session.balance = Math.round((session.balance + entry.amount) * 100) / 100;
+  save();
+  return { ok: true, amount: entry.amount, balance: session.balance };
+}
+
+function unusedWalletCodes() {
+  return db.walletCodes.filter(c => !c.used);
+}
+
+/* ---------- Promo codes ---------- */
+
+function addPromoCode(code, discountPercent, maxUses) {
+  const existing = db.promoCodes.find(p => p.code === code);
+  if (existing) {
+    existing.discount = discountPercent;
+    existing.maxUses = maxUses;
+  } else {
+    db.promoCodes.push({ code, discount: discountPercent, maxUses, uses: 0 });
+  }
+  save();
+  return getPromoCode(code);
+}
+
+function getPromoCode(code) {
+  const promo = db.promoCodes.find(p => p.code === code);
+  if (!promo) return null;
+  return promo.maxUses > 0 && promo.uses >= promo.maxUses ? null : { ...promo };
+}
+
+function listPromoCodes() {
+  return db.promoCodes.map(p => ({ ...p }));
+}
+
+function consumePromoCode(code) {
+  const promo = db.promoCodes.find(p => p.code === code);
+  if (!promo) return { ok: false, reason: 'invalid' };
+  if (promo.maxUses > 0 && promo.uses >= promo.maxUses) return { ok: false, reason: 'used' };
+  promo.uses += 1;
+  save();
+  return { ok: true, discount: promo.discount };
+}
+
+/* ---------- Transactions ---------- */
+
+function createTransaction({ sessionToken, accountId, accountName, amount, promoCode, discount, discordName }) {
+  const tx = {
+    id: db.transactions.reduce((max, t) => Math.max(max, t.id), 0) + 1,
+    orderCode: generateOrderCode(),
+    sessionToken,
+    accountId,
+    accountName,
+    amount: Math.round(amount * 100) / 100,
+    promoCode: promoCode || null,
+    discount: discount || 0,
+    discordName: discordName || null,
+    createdAt: new Date().toISOString(),
+    notified: false
+  };
+  db.transactions.push(tx);
+  save();
+  return tx;
+}
+
+function getOrder(orderCodeOrId) {
+  return db.transactions.find(
+    t => t.orderCode === orderCodeOrId || String(t.id) === String(orderCodeOrId)
+  ) || null;
+}
+
+function listTransactions(limit = 25) {
+  return [...db.transactions].reverse().slice(0, limit);
+}
+
+function listBySession(sessionToken) {
+  return db.transactions.filter(t => t.sessionToken === sessionToken).reverse();
+}
+
+function markNotified(id) {
+  const tx = db.transactions.find(t => t.id === id);
+  if (tx) {
+    tx.notified = true;
+    save();
+    return tx;
+  }
+  return null;
+}
+
+module.exports = {
+  getOrCreateSession,
+  getSession,
+  setBalance,
+  listAccounts,
+  getAccount,
+  addAccount,
+  markAccountSold,
+  decrementStock,
+  restoreAccount,
+  createWalletCodes,
+  redeemWalletCode,
+  unusedWalletCodes,
+  addPromoCode,
+  getPromoCode,
+  listPromoCodes,
+  consumePromoCode,
+  createTransaction,
+  getOrder,
+  listTransactions,
+  listBySession,
+  markNotified,
+  randomToken,
+  generateCode
+};
