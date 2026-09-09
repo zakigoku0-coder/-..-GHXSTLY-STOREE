@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "framework": "other",
   "outputDirectory": "public",
+  "installCommand": "echo skip",
+  "buildCommand": "echo skip",
   "cleanUrls": true
 }
