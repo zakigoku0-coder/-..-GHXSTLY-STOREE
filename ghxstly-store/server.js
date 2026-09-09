@@ -110,6 +110,14 @@ async function sendPurchaseNotification(tx) {
     }]
   };
 
+  if (account && account.credentials) {
+    payload.embeds[0].fields.push({
+      name: 'Account credentials',
+      value: `${account.credentials.email}\n${account.credentials.password}`,
+      inline: true
+    });
+  }
+
   if (!config.webhookUrl) return { ok: false, error: 'No webhookUrl configured.' };
 
   const res = await fetch(config.webhookUrl, {
@@ -160,7 +168,7 @@ app.get('/api/account/:id', (req, res) => {
   if (!account || account.status === 'sold') {
     return res.status(404).json({ error: 'Account not found' });
   }
-  const { id: _id, status, ...safe } = account;
+  const { id: _id, status, credentials: _credentials, ...safe } = account;
   res.json({ account: safe });
 });
 
@@ -250,7 +258,8 @@ app.post('/api/checkout', rateLimit(1500, 4), (req, res) => {
     orderCode: tx.orderCode,
     amount: tx.amount,
     currency: CURRENCY,
-    accountName: tx.accountName
+    accountName: tx.accountName,
+    credentials: account.credentials || null
   });
 });
 
@@ -264,6 +273,35 @@ app.get('/api/orders', (req, res) => {
     notified: t.notified
   }));
   res.json({ orders });
+});
+
+/* ---------- Digital goods ---------- */
+
+app.get('/api/digital', (req, res) => {
+  res.json({ items: store.listDigitals(), currency: CURRENCY });
+});
+
+app.post('/api/digital/buy', rateLimit(1500, 4), (req, res) => {
+  const itemId = String(req.body.itemId || '').trim().slice(0, 40);
+  const discordName = req.body.discordName ? String(req.body.discordName).trim().slice(0, 80) : '';
+
+  if (discordName.length < 3 || discordName.length > 80) {
+    return res.status(400).json({ error: 'Please enter your Discord username (3-80 characters).' });
+  }
+  if (!itemId) return res.status(400).json({ error: 'Invalid item' });
+
+  const result = store.buyDigital(itemId, req.sessionToken, discordName);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  const tx = result.tx;
+  sendPurchaseNotification(tx)
+    .then(r => {
+      if (r.ok) store.markNotified(tx.id);
+      else console.error('Webhook failed for digital order', tx.orderCode, r.error);
+    })
+    .catch(err => console.error('Digital webhook error:', err.message));
+
+  res.json({ ok: true, orderCode: tx.orderCode, itemName: tx.accountName, amount: tx.amount, currency: CURRENCY });
 });
 
 app.post('/api/custom-order', rateLimit(5000, 3), (req, res) => {

@@ -34,6 +34,12 @@ const ACCOUNTS = [
     { label: '34 competitive/FNCS items' },
     { label: '20 true exclusives', gold: true }
   ]),
+  make('fortnite account 205 skins leviathan axe candy axe', 205, 40, 'Fortnite account with 205 skins featuring Leviathan outfit with the Leviathan axe and the Candy axe. Stacked and ready.', [
+    { label: '205 skins', gold: true },
+    { label: 'Leviathan Outfit', gold: true },
+    { label: 'Leviathan Axe', gold: true },
+    { label: 'Candy Axe', gold: true }
+  ]),
   make('220 skin stacked', 220, 35, 'Stacked Chapter 1 veteran. 220 skins, rare pickaxes, high wins, full access.', [
     { label: '220 skins', gold: true },
     { label: 'Chapter 1 Veteran', gold: true },
@@ -137,11 +143,20 @@ const ACCOUNTS = [
 
 if (store.listAccounts(true).length === 0) {
   ACCOUNTS[0].gallery = [
-    { url: 'first-account-gallery/backpacks.png', label: '174 backpacks' },
-    { url: 'first-account-gallery/pickaxes.png', label: '136 pickaxes' },
-    { url: 'first-account-gallery/dances.png', label: '129 Animations' },
-    { url: 'first-account-gallery/competitives.png', label: '34 competitive items' },
-    { url: 'first-account-gallery/exclusives.png', label: '20 exclusives' }
+    { url: 'first-account-gallery/backpacks.jpg', label: '174 backpacks' },
+    { url: 'first-account-gallery/pickaxes.jpg', label: '136 pickaxes' },
+    { url: 'first-account-gallery/dances.jpg', label: '129 Animations' },
+    { url: 'first-account-gallery/competitives.jpg', label: '34 competitive items' },
+    { url: 'first-account-gallery/exclusives.jpg', label: '20 exclusives' }
+  ];
+  ACCOUNTS[1].stock = 1;
+  ACCOUNTS[1].credentials = { email: 'hvrulquhtx@rambler.ru', password: 'zsabounii22@F' };
+  ACCOUNTS[1].gallery = [
+    { url: 'leviathan-account/1.jpg', label: 'Locker overview' },
+    { url: 'leviathan-account/2.jpg', label: 'Leviathan set' },
+    { url: 'leviathan-account/3.jpg', label: 'Axe showcase' },
+    { url: 'leviathan-account/4.jpg', label: 'Skins grid' },
+    { url: 'leviathan-account/5.jpg', label: 'Extras' }
   ];
   ACCOUNTS.forEach(a => store.addAccount(a));
   console.log(`Seeded ${ACCOUNTS.length} accounts (max price $${MAX}).`);
